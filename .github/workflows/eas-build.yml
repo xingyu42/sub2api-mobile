@@ -33,12 +33,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Expo and EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -48,8 +42,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Verify EAS CLI
+        run: eas --version
+
       - name: Trigger EAS build and wait for completion
-        run: npx eas build --non-interactive --wait --json --profile "${{ inputs.profile }}" --platform "${{ inputs.platform }}" > eas-build.json
+        run: eas build --non-interactive --wait --json --profile "${{ inputs.profile }}" --platform "${{ inputs.platform }}" > eas-build.json
+
+      - name: Print raw EAS result
+        run: cat eas-build.json
 
       - name: Publish build links in workflow summary
         run: |
@@ -59,25 +62,39 @@ jobs:
           const raw = fs.readFileSync('eas-build.json', 'utf8').trim();
           const parsed = JSON.parse(raw);
           const builds = Array.isArray(parsed) ? parsed : [parsed];
-
           const lines = [];
+
           for (const build of builds) {
             const platform = String(build.platform || 'unknown').toUpperCase();
-            const detailsUrl = build.buildDetailsPageUrl || build.detailsPageUrl || build.url;
-            const downloadUrl = build?.artifacts?.buildUrl || build?.artifacts?.applicationArchiveUrl;
+            const status = build.status || 'UNKNOWN';
+            const detailsUrl =
+              build.buildDetailsPageUrl ||
+              build.detailsPageUrl ||
+              build.url;
+            const downloadUrl =
+              build?.artifacts?.buildUrl ||
+              build?.artifacts?.applicationArchiveUrl;
+
+            lines.push(`### ${platform}`);
+            lines.push(`- status: ${status}`);
 
             if (detailsUrl) {
-              lines.push(`- ${platform} details: ${detailsUrl}`);
+              lines.push(`- details: ${detailsUrl}`);
             }
+
             if (downloadUrl) {
-              lines.push(`- ${platform} download: ${downloadUrl}`);
+              lines.push(`- download: ${downloadUrl}`);
             }
+
+            lines.push('');
           }
 
           const summary = [
             '## EAS Build Results',
             '',
-            ...(lines.length > 0 ? lines : ['- Build finished, but no URLs were returned by EAS CLI.'])
+            ...(lines.length > 0
+              ? lines
+              : ['- Build finished, but no URLs were returned by EAS CLI.'])
           ].join('\n');
 
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
